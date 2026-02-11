@@ -12,14 +12,24 @@
  * - Interactive Accept/Override/Ignore buttons
  * - Accept All button for high cognitive load
  * - Animations and visual feedback
+ * - Theme-aware (dark/light mode support)
  */
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { planApi, feedbackApi, decisionsApi } from '../lib/api';
+import { ShadowMascot } from './ShadowMascot';
+import { useToast } from './Toast';
+import { useConfetti } from './Confetti';
+import { sounds } from '../lib/sounds';
 
 export const DecisionCards = ({ onFeedbackComplete }) => {
     const { user } = useAuth();
+    const { currentTheme, isDark } = useTheme();
+    const toast = useToast();
+    const triggerConfetti = useConfetti();
+    
     const [plan, setPlan] = useState(null);
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState(false);
@@ -69,6 +79,7 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
         try {
             setGenerating(true);
             setError(null);
+            sounds.generate(); // Play generation sound
             
             const endpoint = force ? '/plan/generate?force=true' : '/plan/generate';
             const response = await fetch(`http://localhost:5000${endpoint}`, {
@@ -88,12 +99,17 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
                     states[card.id] = { status: 'pending', action: null };
                 });
                 setCardStates(states);
+                sounds.success();
+                toast.shadow(`Plan ready! ${data.plan.compressed_decision_cards?.length || 0} cards for you`);
             } else {
                 setError(data.message || 'No plan generated');
+                sounds.error();
             }
         } catch (err) {
             console.error('Failed to generate plan:', err);
             setError('Could not generate plan. Do you have any active decisions?');
+            sounds.error();
+            toast.error('Could not generate plan');
         } finally {
             setGenerating(false);
         }
@@ -102,6 +118,8 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
     // Handle Accept action
     const handleAccept = async (card) => {
         try {
+            sounds.accept(); // Play accept sound
+            
             // Send feedback to backend
             await feedbackApi.submit(user.id, {
                 plan_id: plan.id,
@@ -118,10 +136,26 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
             });
             
             // Update card state with animation
-            setCardStates(prev => ({
-                ...prev,
-                [card.id]: { status: 'completed', action: 'accept' }
-            }));
+            setCardStates(prev => {
+                const newStates = {
+                    ...prev,
+                    [card.id]: { status: 'completed', action: 'accept' }
+                };
+                
+                // Check if all cards are now completed for celebration
+                const allCompleted = Object.values(newStates).every(s => s.status === 'completed');
+                if (allCompleted) {
+                    setTimeout(() => {
+                        sounds.celebrate();
+                        triggerConfetti();
+                        toast.celebrate('All done! Your shadow is learning! 🎉');
+                    }, 300);
+                }
+                
+                return newStates;
+            });
+            
+            toast.success('Accepted! Shadow is learning...');
             
             // Notify parent
             onFeedbackComplete?.('accept', card);
@@ -129,6 +163,8 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
         } catch (err) {
             console.error('Failed to submit accept:', err);
             setError('Failed to record feedback');
+            sounds.error();
+            toast.error('Failed to accept');
         }
     };
 
@@ -159,6 +195,8 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
         if (!selectedAlternative || !overrideCard) return;
         
         try {
+            sounds.override(); // Play override sound
+            
             await feedbackApi.submit(user.id, {
                 plan_id: plan.id,
                 item_type: 'card',
@@ -175,31 +213,50 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
             });
             
             // Update card state
-            setCardStates(prev => ({
-                ...prev,
-                [overrideCard.id]: { 
-                    status: 'completed', 
-                    action: 'override',
-                    alternative: selectedAlternative.title
+            setCardStates(prev => {
+                const newStates = {
+                    ...prev,
+                    [overrideCard.id]: { 
+                        status: 'completed', 
+                        action: 'override',
+                        alternative: selectedAlternative.title
+                    }
+                };
+                
+                // Check if all cards are now completed for celebration
+                const allCompleted = Object.values(newStates).every(s => s.status === 'completed');
+                if (allCompleted) {
+                    setTimeout(() => {
+                        sounds.celebrate();
+                        triggerConfetti();
+                        toast.celebrate('All done! Your preferences are noted! 🎉');
+                    }, 300);
                 }
-            }));
+                
+                return newStates;
+            });
             
             // Close modal
             setShowOverrideModal(false);
             setOverrideCard(null);
             setSelectedAlternative(null);
             
+            toast.success(`Switched to: ${selectedAlternative.title}`);
             onFeedbackComplete?.('override', overrideCard);
             
         } catch (err) {
             console.error('Failed to submit override:', err);
             setError('Failed to record feedback');
+            sounds.error();
+            toast.error('Failed to override');
         }
     };
 
     // Handle Ignore/Skip action
     const handleIgnore = async (card) => {
         try {
+            sounds.ignore(); // Play ignore sound
+            
             await feedbackApi.submit(user.id, {
                 plan_id: plan.id,
                 item_type: 'card',
@@ -213,16 +270,32 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
             });
             
             // Update card state
-            setCardStates(prev => ({
-                ...prev,
-                [card.id]: { status: 'completed', action: 'ignore' }
-            }));
+            setCardStates(prev => {
+                const newStates = {
+                    ...prev,
+                    [card.id]: { status: 'completed', action: 'ignore' }
+                };
+                
+                // Check if all cards are now completed
+                const allCompleted = Object.values(newStates).every(s => s.status === 'completed');
+                if (allCompleted) {
+                    setTimeout(() => {
+                        sounds.celebrate();
+                        triggerConfetti();
+                        toast.celebrate('All done for now! 🎉');
+                    }, 300);
+                }
+                
+                return newStates;
+            });
             
+            toast.shadow('Skipped. Shadow will remember.');
             onFeedbackComplete?.('ignore', card);
             
         } catch (err) {
             console.error('Failed to submit ignore:', err);
             setError('Failed to record feedback');
+            sounds.error();
         }
     };
 
@@ -245,12 +318,30 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
         }
     };
 
+    // Theme-aware styles
+    const themedContainer = {
+        ...styles.container,
+        backgroundColor: currentTheme.cardBg,
+        boxShadow: currentTheme.shadow,
+    };
+    
+    const themedTitle = {
+        ...styles.title,
+        color: currentTheme.textPrimary,
+    };
+
     // Get card style based on state
     const getCardStyle = (card) => {
         const state = cardStates[card.id];
+        const baseCard = {
+            ...styles.card,
+            backgroundColor: isDark ? currentTheme.backgroundSecondary : 'white',
+            borderColor: currentTheme.border,
+        };
+        
         if (!state || state.status === 'pending') {
             return {
-                ...styles.card,
+                ...baseCard,
                 borderLeftColor: getPriorityColor(card.priority),
             };
         }
@@ -258,41 +349,40 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
         // Completed states
         if (state.action === 'accept') {
             return {
-                ...styles.card,
+                ...baseCard,
                 ...styles.cardCompleted,
                 borderLeftColor: '#10B981',
-                backgroundColor: '#F0FDF4',
+                backgroundColor: isDark ? '#065F4622' : '#F0FDF4',
             };
         }
         if (state.action === 'override') {
             return {
-                ...styles.card,
+                ...baseCard,
                 ...styles.cardCompleted,
                 borderLeftColor: '#F59E0B',
-                backgroundColor: '#FFFBEB',
+                backgroundColor: isDark ? '#78350F22' : '#FFFBEB',
             };
         }
         if (state.action === 'ignore') {
             return {
-                ...styles.card,
+                ...baseCard,
                 ...styles.cardCompleted,
                 borderLeftColor: '#9CA3AF',
-                backgroundColor: '#F3F4F6',
+                backgroundColor: isDark ? currentTheme.backgroundSecondary : '#F3F4F6',
                 opacity: 0.7,
             };
         }
         
-        return styles.card;
+        return baseCard;
     };
 
     // Loading state
     if (loading) {
         return (
-            <div style={styles.container}>
-                <h3 style={styles.title}>Today's Plan</h3>
+            <div style={themedContainer}>
+                <h3 style={themedTitle}>Today's Plan</h3>
                 <div style={styles.loadingCard}>
-                    <div style={styles.spinner}></div>
-                    <p>Loading your plan...</p>
+                    <ShadowMascot state="thinking" message="Loading your plan..." size="medium" />
                 </div>
             </div>
         );
@@ -301,21 +391,36 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
     // No plan yet
     if (!plan) {
         return (
-            <div style={styles.container}>
-                <h3 style={styles.title}>Today's Plan</h3>
+            <div style={themedContainer}>
+                <h3 style={themedTitle}>Today's Plan</h3>
                 {error && <p style={styles.error}>{error}</p>}
                 <div style={styles.emptyState}>
-                    <span style={styles.emptyIcon}>📋</span>
-                    <p style={styles.emptyText}>No plan generated yet</p>
-                    <p style={styles.emptyHint}>
-                        Add some decisions and generate your personalized plan
+                    <ShadowMascot 
+                        state={generating ? "thinking" : "idle"} 
+                        message={generating ? "Creating your plan..." : "Ready when you are!"} 
+                        size="medium" 
+                    />
+                    <p style={{...styles.emptyText, color: currentTheme.textPrimary}}>
+                        {generating ? 'Analyzing your decisions...' : 'No plan generated yet'}
+                    </p>
+                    <p style={{...styles.emptyHint, color: currentTheme.textMuted}}>
+                        {generating ? 'This will only take a moment' : 'Click below to let your shadow plan your day'}
                     </p>
                     <button 
                         onClick={() => handleGeneratePlan(false)}
                         disabled={generating}
-                        style={styles.generateButton}
+                        style={{
+                            ...styles.generateButton,
+                            opacity: generating ? 0.7 : 1,
+                        }}
+                        data-guide="generate-plan"
                     >
-                        {generating ? 'Generating...' : '✨ Generate My Plan'}
+                        {generating ? (
+                            <span style={styles.generatingText}>
+                                <span style={styles.spinnerSmall}></span>
+                                Generating...
+                            </span>
+                        ) : '✨ Generate My Plan'}
                     </button>
                 </div>
             </div>
@@ -328,14 +433,17 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
     const allCompleted = pendingCount === 0 && cards.length > 0;
 
     return (
-        <div style={styles.container}>
+        <div style={themedContainer}>
             {/* Header */}
             <div style={styles.header}>
-                <h3 style={styles.title}>Today's Plan</h3>
+                <h3 style={themedTitle}>Today's Plan</h3>
                 <button 
                     onClick={() => handleGeneratePlan(true)}
                     disabled={generating}
-                    style={styles.regenerateButton}
+                    style={{
+                        ...styles.regenerateButton,
+                        backgroundColor: isDark ? currentTheme.backgroundSecondary : '#F3F4F6',
+                    }}
                     title="Regenerate plan"
                 >
                     {generating ? '...' : '🔄'}
@@ -345,7 +453,10 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
             {/* Progress indicator */}
             {cards.length > 0 && (
                 <div style={styles.progress}>
-                    <div style={styles.progressBar}>
+                    <div style={{
+                        ...styles.progressBar,
+                        backgroundColor: isDark ? currentTheme.backgroundSecondary : '#E5E7EB',
+                    }}>
                         <div 
                             style={{
                                 ...styles.progressFill,
@@ -353,7 +464,7 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
                             }}
                         />
                     </div>
-                    <span style={styles.progressText}>
+                    <span style={{...styles.progressText, color: currentTheme.textMuted}}>
                         {completedCount}/{cards.length} completed
                     </span>
                 </div>
@@ -363,10 +474,22 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
 
             {/* All completed celebration */}
             {allCompleted && (
-                <div style={styles.celebration}>
-                    <span style={styles.celebrationEmoji}>🎉</span>
-                    <p style={styles.celebrationText}>You're all set for today!</p>
-                    <p style={styles.celebrationHint}>Your shadow is learning from your choices.</p>
+                <div style={{
+                    ...styles.celebration,
+                    backgroundColor: isDark ? '#065F4622' : '#ECFDF5',
+                }}>
+                    <ShadowMascot state="celebrating" message="All done!" size="small" />
+                    <p style={{...styles.celebrationText, color: currentTheme.textPrimary}}>You're all set for today!</p>
+                    <p style={{...styles.celebrationHint, color: currentTheme.textMuted}}>Your shadow learned from your choices.</p>
+                    <div style={styles.confetti}>
+                        {['🎉', '✨', '🌟', '💫', '🎊'].map((emoji, i) => (
+                            <span key={i} style={{
+                                ...styles.confettiPiece,
+                                animationDelay: `${i * 0.1}s`,
+                                left: `${10 + i * 20}%`,
+                            }}>{emoji}</span>
+                        ))}
+                    </div>
                 </div>
             )}
 
@@ -381,7 +504,7 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
             )}
 
             {cards.length === 0 ? (
-                <p style={styles.noCards}>No cards in this plan. Try adding more decisions!</p>
+                <p style={{...styles.noCards, color: currentTheme.textMuted}}>No cards in this plan. Try adding more decisions!</p>
             ) : (
                 <div style={styles.cardList}>
                     {cards.map((card, index) => {
@@ -439,22 +562,25 @@ export const DecisionCards = ({ onFeedbackComplete }) => {
 
                                 {/* Action Buttons - only show if pending */}
                                 {!isCompleted && (
-                                    <div style={styles.cardActions}>
+                                    <div style={styles.cardActions} data-guide="card-actions">
                                         <button 
                                             style={styles.acceptButton}
                                             onClick={() => handleAccept(card)}
+                                            title="Yes, this works for me!"
                                         >
                                             ✓ Accept
                                         </button>
                                         <button 
                                             style={styles.overrideButton}
                                             onClick={() => handleOverride(card)}
+                                            title="I prefer something else"
                                         >
                                             ↻ Override
                                         </button>
                                         <button 
                                             style={styles.ignoreButton}
                                             onClick={() => handleIgnore(card)}
+                                            title="Skip for now"
                                         >
                                             ✕ Skip
                                         </button>
@@ -611,7 +737,7 @@ const styles = {
         marginBottom: '12px',
     },
     emptyText: {
-        margin: '0 0 4px 0',
+        margin: '12px 0 4px 0',
         fontSize: '15px',
         color: '#374151',
         fontWeight: '500',
@@ -622,38 +748,65 @@ const styles = {
         color: '#6B7280',
     },
     generateButton: {
-        padding: '12px 24px',
-        backgroundColor: '#4F46E5',
+        padding: '14px 28px',
+        background: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)',
         color: 'white',
         border: 'none',
-        borderRadius: '8px',
-        fontSize: '14px',
+        borderRadius: '12px',
+        fontSize: '15px',
         fontWeight: '600',
         cursor: 'pointer',
         transition: 'all 0.2s',
+        boxShadow: '0 4px 15px rgba(79, 70, 229, 0.3)',
+    },
+    generatingText: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '10px',
+    },
+    spinnerSmall: {
+        width: '16px',
+        height: '16px',
+        border: '2px solid rgba(255,255,255,0.3)',
+        borderTopColor: 'white',
+        borderRadius: '50%',
+        animation: 'spin 0.8s linear infinite',
     },
     celebration: {
         textAlign: 'center',
-        padding: '20px',
-        backgroundColor: '#F0FDF4',
-        borderRadius: '8px',
+        padding: '24px',
+        background: 'linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%)',
+        borderRadius: '16px',
         marginBottom: '16px',
-    },
-    celebrationEmoji: {
-        fontSize: '32px',
-        display: 'block',
-        marginBottom: '8px',
+        position: 'relative',
+        overflow: 'hidden',
     },
     celebrationText: {
-        margin: '0 0 4px 0',
-        fontSize: '16px',
-        fontWeight: '600',
+        margin: '12px 0 4px 0',
+        fontSize: '18px',
+        fontWeight: '700',
         color: '#166534',
     },
     celebrationHint: {
         margin: 0,
         fontSize: '13px',
         color: '#15803D',
+    },
+    confetti: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        pointerEvents: 'none',
+        overflow: 'hidden',
+    },
+    confettiPiece: {
+        position: 'absolute',
+        top: '-20px',
+        fontSize: '20px',
+        animation: 'confetti-fall 2s ease-in-out infinite',
     },
     acceptAllButton: {
         width: '100%',
@@ -925,22 +1078,55 @@ const styles = {
     },
 };
 
-// Add keyframe for spinner
+// Add keyframe animations
 const styleSheet = document.createElement('style');
 styleSheet.textContent = `
     @keyframes spin {
         to { transform: rotate(360deg); }
     }
     
-    .card-enter {
-        opacity: 0;
-        transform: translateY(-10px);
+    @keyframes confetti-fall {
+        0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+        100% { transform: translateY(150px) rotate(360deg); opacity: 0; }
     }
     
-    .card-enter-active {
-        opacity: 1;
+    @keyframes card-appear {
+        from { 
+            opacity: 0; 
+            transform: translateY(-10px) scale(0.95); 
+        }
+        to { 
+            opacity: 1; 
+            transform: translateY(0) scale(1); 
+        }
+    }
+    
+    @keyframes card-complete {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.02); }
+        100% { transform: scale(0.98); }
+    }
+    
+    @keyframes pulse-ring {
+        0% { transform: scale(1); opacity: 1; }
+        100% { transform: scale(1.5); opacity: 0; }
+    }
+    
+    .card-animate {
+        animation: card-appear 0.3s ease-out forwards;
+    }
+    
+    .card-complete-animate {
+        animation: card-complete 0.3s ease-out forwards;
+    }
+    
+    .generate-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(79, 70, 229, 0.4);
+    }
+    
+    .generate-btn:active {
         transform: translateY(0);
-        transition: all 0.3s ease;
     }
 `;
 document.head.appendChild(styleSheet);

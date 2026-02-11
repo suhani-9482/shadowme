@@ -10,14 +10,18 @@
  * - Green (0-33): Low load, user is fresh
  * - Yellow/Orange (34-66): Medium load, balanced mode
  * - Red (67-100): High load, user is tired
+ * - Theme-aware (dark/light mode support)
  */
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { profileApi } from '../lib/api';
+import { ShadowMascot } from './ShadowMascot';
 
 export const CognitiveLoadMeter = ({ onLoadChange }) => {
     const { user } = useAuth();
+    const { currentTheme, isDark } = useTheme();
     const [loadData, setLoadData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -79,40 +83,85 @@ export const CognitiveLoadMeter = ({ onLoadChange }) => {
         }
     };
 
+    // Get mascot state based on cognitive load
+    const getMascotState = (score) => {
+        if (score <= 30) return { state: 'happy', message: 'You feel great!' };
+        if (score <= 50) return { state: 'idle', message: 'Doing okay!' };
+        if (score <= 70) return { state: 'thinking', message: 'Getting tired...' };
+        return { state: 'sleeping', message: 'Take a break!' };
+    };
+
+    // Theme-aware styles
+    const themedContainer = {
+        ...styles.container,
+        backgroundColor: currentTheme.cardBg,
+        boxShadow: currentTheme.shadow,
+    };
+    
+    const themedTitle = {
+        ...styles.title,
+        color: currentTheme.textPrimary,
+    };
+    
+    const themedMeterBar = {
+        ...styles.meterBar,
+        backgroundColor: isDark ? currentTheme.backgroundSecondary : '#E5E7EB',
+    };
+
     if (loading) {
         return (
-            <div style={styles.container}>
-                <h3 style={styles.title}>Cognitive Load Meter</h3>
-                <div style={styles.skeleton}></div>
-                <p style={styles.loading}>Calculating...</p>
+            <div style={themedContainer}>
+                <h3 style={themedTitle}>Cognitive Load Meter</h3>
+                <div style={styles.loadingWrapper}>
+                    <ShadowMascot state="thinking" message="Analyzing..." size="small" />
+                </div>
             </div>
         );
     }
 
     if (error || !loadData) {
         return (
-            <div style={styles.container}>
-                <h3 style={styles.title}>Cognitive Load Meter</h3>
-                <div style={{ ...styles.meterBar, backgroundColor: '#E5E7EB' }}>
+            <div style={themedContainer}>
+                <h3 style={themedTitle}>Cognitive Load Meter</h3>
+                <div style={{ ...themedMeterBar }}>
                     <div style={{ ...styles.meterFill, width: '50%', background: '#9CA3AF' }} />
                 </div>
-                <p style={styles.errorText}>{error || 'Unable to load'}</p>
+                <p style={{...styles.errorText, color: currentTheme.textMuted}}>{error || 'Unable to load'}</p>
             </div>
         );
     }
 
     const { score, autonomyLevel, description, breakdown } = loadData;
     const autonomyStyle = getAutonomyStyle(autonomyLevel);
+    const mascotInfo = getMascotState(score);
 
     return (
-        <div style={styles.container}>
+        <div style={themedContainer}>
             <div style={styles.header}>
-                <h3 style={styles.title}>Cognitive Load Meter</h3>
-                <span style={styles.score}>{score}</span>
+                <h3 style={themedTitle}>
+                    <span style={styles.brainEmoji}>🧠</span>
+                    Cognitive Load
+                </h3>
+                <div style={styles.scoreContainer}>
+                    <span style={{
+                        ...styles.score,
+                        color: getColor(score),
+                    }}>{score}</span>
+                    <span style={{...styles.scoreMax, color: currentTheme.textMuted}}>/100</span>
+                </div>
+            </div>
+
+            {/* Mini Mascot with load state */}
+            <div style={styles.mascotRow}>
+                <ShadowMascot 
+                    state={mascotInfo.state} 
+                    message={mascotInfo.message} 
+                    size="small" 
+                />
             </div>
 
             {/* Main meter bar */}
-            <div style={styles.meterBar}>
+            <div style={themedMeterBar}>
                 <div 
                     style={{ 
                         ...styles.meterFill, 
@@ -121,12 +170,12 @@ export const CognitiveLoadMeter = ({ onLoadChange }) => {
                     }} 
                 />
                 {/* Threshold markers */}
-                <div style={{ ...styles.marker, left: '33%' }} />
-                <div style={{ ...styles.marker, left: '66%' }} />
+                <div style={{ ...styles.marker, left: '33%', backgroundColor: isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.2)' }} />
+                <div style={{ ...styles.marker, left: '66%', backgroundColor: isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.2)' }} />
             </div>
 
             {/* Scale labels */}
-            <div style={styles.scaleLabels}>
+            <div style={{...styles.scaleLabels, color: currentTheme.textMuted}}>
                 <span>Fresh</span>
                 <span>Moderate</span>
                 <span>Tired</span>
@@ -135,7 +184,7 @@ export const CognitiveLoadMeter = ({ onLoadChange }) => {
             {/* Autonomy level badge */}
             <div style={{
                 ...styles.autonomyBadge,
-                backgroundColor: autonomyStyle.bg,
+                backgroundColor: isDark ? `${autonomyStyle.color}22` : autonomyStyle.bg,
                 color: autonomyStyle.color,
             }}>
                 <span style={styles.autonomyIcon}>{autonomyStyle.icon}</span>
@@ -145,26 +194,26 @@ export const CognitiveLoadMeter = ({ onLoadChange }) => {
             </div>
 
             {/* Description */}
-            <p style={styles.description}>{description}</p>
+            <p style={{...styles.description, color: currentTheme.textSecondary}}>{description}</p>
 
             {/* Breakdown details (collapsible) */}
-            <details style={styles.details}>
-                <summary style={styles.summary}>See breakdown</summary>
+            <details style={{...styles.details, backgroundColor: isDark ? currentTheme.backgroundSecondary : '#F9FAFB'}}>
+                <summary style={{...styles.summary, color: currentTheme.textSecondary}}>See breakdown</summary>
                 <div style={styles.breakdownGrid}>
                     <div style={styles.breakdownItem}>
-                        <span style={styles.breakdownLabel}>Decisions today</span>
-                        <span style={styles.breakdownValue}>
+                        <span style={{...styles.breakdownLabel, color: currentTheme.textMuted}}>Decisions today</span>
+                        <span style={{...styles.breakdownValue, color: currentTheme.textPrimary}}>
                             {breakdown?.decisions?.count || 0} (+{breakdown?.decisions?.value || 0}pts)
                         </span>
                     </div>
                     <div style={styles.breakdownItem}>
-                        <span style={styles.breakdownLabel}>Override rate</span>
-                        <span style={styles.breakdownValue}>
+                        <span style={{...styles.breakdownLabel, color: currentTheme.textMuted}}>Override rate</span>
+                        <span style={{...styles.breakdownValue, color: currentTheme.textPrimary}}>
                             {breakdown?.overrides?.rate || 0}% (+{breakdown?.overrides?.value || 0}pts)
                         </span>
                     </div>
                     <div style={styles.breakdownItem}>
-                        <span style={styles.breakdownLabel}>Time on site</span>
+                        <span style={{...styles.breakdownLabel, color: currentTheme.textMuted}}>Time on site</span>
                         <span style={styles.breakdownValue}>
                             {breakdown?.timeOnSite?.minutes || 0}min (+{breakdown?.timeOnSite?.value || 0}pts)
                         </span>
@@ -184,9 +233,10 @@ export const CognitiveLoadMeter = ({ onLoadChange }) => {
 const styles = {
     container: {
         backgroundColor: 'white',
-        borderRadius: '12px',
+        borderRadius: '16px',
         padding: '20px',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+        boxShadow: '0 2px 10px rgba(0, 0, 0, 0.08)',
+        border: '1px solid #E5E7EB',
     },
     header: {
         display: 'flex',
@@ -199,11 +249,36 @@ const styles = {
         fontSize: '16px',
         fontWeight: '600',
         color: '#333',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+    },
+    brainEmoji: {
+        fontSize: '20px',
+    },
+    scoreContainer: {
+        display: 'flex',
+        alignItems: 'baseline',
+        gap: '2px',
     },
     score: {
-        fontSize: '24px',
+        fontSize: '28px',
         fontWeight: '700',
-        color: '#4F46E5',
+        transition: 'color 0.3s ease',
+    },
+    scoreMax: {
+        fontSize: '14px',
+        color: '#9CA3AF',
+    },
+    loadingWrapper: {
+        display: 'flex',
+        justifyContent: 'center',
+        padding: '20px 0',
+    },
+    mascotRow: {
+        display: 'flex',
+        justifyContent: 'center',
+        marginBottom: '16px',
     },
     meterBar: {
         position: 'relative',
