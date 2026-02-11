@@ -6,6 +6,7 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../lib/supabase');
 const authMiddleware = require('../middleware/auth');
+const { calculateCognitiveLoad, getAutonomyDescription } = require('../services/cognitiveLoad');
 
 // Apply auth middleware to all routes
 router.use(authMiddleware);
@@ -149,6 +150,21 @@ router.put('/', async (req, res) => {
     } catch (error) {
         console.error('Error updating profile:', error);
         res.status(500).json({ error: 'Failed to update profile' });
+    }
+});
+
+/**
+ * GET /profile/cognitive-load
+ * Get current cognitive load score and autonomy level
+ */
+router.get('/cognitive-load', async (req, res) => {
+    try {
+        const result = await calculateCognitiveLoad(req.userId);
+        result.description = getAutonomyDescription(result.autonomyLevel);
+        res.json(result);
+    } catch (error) {
+        console.error('Error calculating cognitive load:', error);
+        res.status(500).json({ error: 'Failed to calculate cognitive load' });
     }
 });
 

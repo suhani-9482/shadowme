@@ -53,6 +53,7 @@ export const profileApi = {
         body: JSON.stringify(data),
     }, userId),
     getCsp: (userId) => apiRequest('/profile/csp', { method: 'GET' }, userId),
+    getCognitiveLoad: (userId) => apiRequest('/profile/cognitive-load', { method: 'GET' }, userId),
 };
 
 // Decisions API

@@ -94,6 +94,54 @@ router.post('/batch', async (req, res) => {
 });
 
 /**
+ * GET /events/today-stats
+ * Get statistics about today's events (for cognitive load calculation)
+ * Returns: total events, session duration, action counts
+ */
+router.get('/today-stats', async (req, res) => {
+    try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const { data: events, error } = await supabase
+            .from('interaction_events')
+            .select('*')
+            .eq('user_id', req.userId)
+            .gte('timestamp', today.toISOString());
+        
+        if (error) throw error;
+        
+        // Calculate stats
+        const stats = {
+            total_events: events.length,
+            session_starts: events.filter(e => e.event_type === 'session_start').length,
+            page_loads: events.filter(e => e.event_type === 'page_load').length,
+            idle_events: events.filter(e => e.event_type === 'idle').length,
+            actions: events.filter(e => e.event_type === 'action').length,
+            visibility_changes: events.filter(e => e.event_type === 'visibility_change').length,
+            
+            // Calculate total session time from metadata
+            total_session_time_ms: events
+                .filter(e => e.event_type === 'session_end' && e.metadata?.total_duration_ms)
+                .reduce((sum, e) => sum + (e.metadata.total_duration_ms || 0), 0),
+        };
+        
+        // Get action breakdown
+        const actionEvents = events.filter(e => e.event_type === 'action');
+        stats.action_breakdown = {
+            accepts: actionEvents.filter(e => e.metadata?.action === 'accept').length,
+            overrides: actionEvents.filter(e => e.metadata?.action === 'override').length,
+            ignores: actionEvents.filter(e => e.metadata?.action === 'ignore').length,
+        };
+        
+        res.json({ stats, date: today.toISOString().split('T')[0] });
+    } catch (error) {
+        console.error('Error fetching today stats:', error);
+        res.status(500).json({ error: 'Failed to fetch today stats' });
+    }
+});
+
+/**
  * GET /events
  * Get user's interaction events (for debugging/analysis)
  * Query params: limit, event_type, session_id

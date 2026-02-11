@@ -1,14 +1,12 @@
 /**
  * Feedback Routes
  * Handles accept/override/ignore feedback and CSP updates
- * 
- * NOTE: Person 2 (teammate) will implement the CSP update logic.
- * This file provides the route structure and basic storage.
  */
 const express = require('express');
 const router = express.Router();
 const supabase = require('../lib/supabase');
 const authMiddleware = require('../middleware/auth');
+const { updateCspFromFeedback } = require('../services/cspLearning');
 
 // Apply auth middleware to all routes
 router.use(authMiddleware);
@@ -80,78 +78,25 @@ router.post('/', async (req, res) => {
         
         if (error) throw error;
         
-        // PLACEHOLDER: CSP update logic
-        // Person 2 will implement full CSP weight updates here
         console.log(`[Feedback] User ${req.userId} - Action: ${action}, Item: ${item_type}`);
         
-        // Basic CSP counter update (Person 2 will expand)
-        await updateCspCounters(req.userId, action);
+        // Update CSP using the learning service
+        const updatedCsp = await updateCspFromFeedback(req.userId, action, context || {});
         
         res.status(201).json({
             message: 'Feedback recorded',
             feedback,
-            csp_updated: true
+            csp_updated: true,
+            csp_snapshot: updatedCsp ? {
+                accept_rate: updatedCsp.accept_rate,
+                total_decisions: updatedCsp.total_decisions,
+            } : null,
         });
     } catch (error) {
         console.error('Error recording feedback:', error);
         res.status(500).json({ error: 'Failed to record feedback' });
     }
 });
-
-/**
- * Helper function to update basic CSP counters
- * Person 2 will expand this with full weight update logic
- */
-async function updateCspCounters(userId, action) {
-    try {
-        // Fetch current CSP
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('csp_vector')
-            .eq('id', userId)
-            .single();
-        
-        if (!profile) return;
-        
-        const csp = profile.csp_vector || {};
-        
-        // Update counters
-        csp.total_decisions = (csp.total_decisions || 0) + 1;
-        
-        if (action === 'accept') {
-            csp.total_accepts = (csp.total_accepts || 0) + 1;
-        } else if (action === 'override') {
-            csp.total_overrides = (csp.total_overrides || 0) + 1;
-        } else if (action === 'ignore') {
-            csp.total_ignores = (csp.total_ignores || 0) + 1;
-        }
-        
-        // Update rates
-        if (csp.total_decisions > 0) {
-            csp.accept_rate = csp.total_accepts / csp.total_decisions;
-            csp.override_rate = csp.total_overrides / csp.total_decisions;
-        }
-        
-        // Save updated CSP
-        await supabase
-            .from('profiles')
-            .update({
-                csp_vector: csp,
-                csp_last_updated: new Date().toISOString()
-            })
-            .eq('id', userId);
-        
-        console.log(`[CSP] Updated counters for user ${userId}:`, {
-            total: csp.total_decisions,
-            accepts: csp.total_accepts,
-            overrides: csp.total_overrides,
-            ignores: csp.total_ignores,
-            accept_rate: csp.accept_rate?.toFixed(2)
-        });
-    } catch (error) {
-        console.error('Error updating CSP counters:', error);
-    }
-}
 
 /**
  * GET /feedback

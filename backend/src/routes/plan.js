@@ -1,14 +1,12 @@
 /**
  * Plan Routes
  * Generates daily plans with compressed decision cards
- * 
- * NOTE: Person 2 (teammate) will implement the full decision engine logic.
- * This file provides the route structure and basic placeholder implementation.
  */
 const express = require('express');
 const router = express.Router();
 const supabase = require('../lib/supabase');
 const authMiddleware = require('../middleware/auth');
+const { generateDailyPlan } = require('../services/decisionEngine');
 
 // Apply auth middleware to all routes
 router.use(authMiddleware);
@@ -16,15 +14,12 @@ router.use(authMiddleware);
 /**
  * POST /plan/generate
  * Generate today's plan with compressed decision cards
- * 
- * This is a placeholder - Person 2 will implement:
- * - Cognitive Load Meter calculation
- * - Decision Engine with CSP weights
- * - Compressed decision card generation
+ * Query param: ?force=true to regenerate even if plan exists
  */
 router.post('/generate', async (req, res) => {
     try {
         const today = new Date().toISOString().split('T')[0];
+        const forceRegenerate = req.query.force === 'true';
         
         // Check if plan already exists for today
         const { data: existingPlan } = await supabase
@@ -34,7 +29,8 @@ router.post('/generate', async (req, res) => {
             .eq('plan_date', today)
             .single();
         
-        if (existingPlan) {
+        // If plan exists and not forcing regeneration, return existing
+        if (existingPlan && !forceRegenerate) {
             return res.json({
                 message: 'Plan already exists for today',
                 plan: existingPlan,
@@ -42,50 +38,47 @@ router.post('/generate', async (req, res) => {
             });
         }
         
-        // Fetch user's profile and CSP
+        // If forcing regeneration, delete existing plan first
+        if (existingPlan && forceRegenerate) {
+            await supabase
+                .from('daily_plans')
+                .delete()
+                .eq('id', existingPlan.id);
+        }
+        
+        // Generate the plan using Decision Engine
+        const planData = await generateDailyPlan(req.userId);
+        
+        // If no cards generated (no decisions), return early
+        if (planData.cards.length === 0) {
+            return res.json({
+                message: planData.message || 'No plan generated',
+                plan: null,
+                cognitiveLoad: planData.cognitiveLoad,
+                autonomyLevel: planData.autonomyLevel,
+            });
+        }
+        
+        // Fetch profile for context
         const { data: profile } = await supabase
             .from('profiles')
-            .select('*')
+            .select('csp_vector')
             .eq('id', req.userId)
             .single();
         
-        // Fetch user's active decisions
-        const { data: decisions } = await supabase
-            .from('decisions')
-            .select('*')
-            .eq('user_id', req.userId)
-            .eq('active', true);
-        
-        // PLACEHOLDER: Basic plan generation
-        // Person 2 will replace with full decision engine
-        const cognitiveLoad = 50; // Placeholder
-        const autonomyLevel = 'assist'; // Placeholder
-        
-        // Create placeholder compressed decision cards
-        const compressedCards = [
-            {
-                id: 'card_1',
-                title: 'Morning Block',
-                recommended_action: 'Start your day',
-                why: 'Based on your wake time preference',
-                items: decisions?.filter(d => d.type === 'task').slice(0, 1) || [],
-                autonomy_level: autonomyLevel
-            }
-        ];
-        
-        // Store the plan
+        // Store the plan in database
         const { data: plan, error } = await supabase
             .from('daily_plans')
             .insert({
                 user_id: req.userId,
                 plan_date: today,
-                compressed_decision_cards: compressedCards,
-                cognitive_load: cognitiveLoad,
-                autonomy_level: autonomyLevel,
+                compressed_decision_cards: planData.cards,
+                cognitive_load: planData.cognitiveLoad,
+                autonomy_level: planData.autonomyLevel,
                 generation_context: {
-                    profile_snapshot: profile?.csp_vector,
-                    decisions_count: decisions?.length || 0,
-                    generated_at: new Date().toISOString()
+                    csp_snapshot: profile?.csp_vector,
+                    total_decisions: planData.totalDecisions,
+                    generated_at: planData.generatedAt,
                 }
             })
             .select()
@@ -93,12 +86,12 @@ router.post('/generate', async (req, res) => {
         
         if (error) throw error;
         
-        console.log(`[Plan] Generated plan for user ${req.userId} - Load: ${cognitiveLoad}, Autonomy: ${autonomyLevel}`);
+        console.log(`[Plan] Generated plan for user ${req.userId} - ${planData.cards.length} cards, Load: ${planData.cognitiveLoad}, Level: ${planData.autonomyLevel}`);
         
         res.status(201).json({
-            message: 'Plan generated successfully',
+            message: forceRegenerate ? 'Plan regenerated successfully' : 'Plan generated successfully',
             plan,
-            regenerated: false
+            regenerated: forceRegenerate,
         });
     } catch (error) {
         console.error('Error generating plan:', error);

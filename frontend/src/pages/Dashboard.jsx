@@ -1,18 +1,14 @@
 /**
  * Dashboard Page
- * Main interface for managing decisions
- * 
- * Note: Person 2 (teammate) will add:
- * - Daily plan display with compressed decision cards
- * - Cognitive Load Meter
- * - Accept/Override/Ignore feedback buttons
- * - CSP stats display
+ * Main interface for managing decisions and viewing daily plans
  */
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { decisionsApi } from '../lib/api';
+import { decisionsApi, profileApi } from '../lib/api';
 import { DecisionForm } from '../components/DecisionForm';
 import { DecisionList } from '../components/DecisionList';
+import { CognitiveLoadMeter } from '../components/CognitiveLoadMeter';
+import { DecisionCards } from '../components/DecisionCards';
 
 export const Dashboard = () => {
     const { user, profile, signOut } = useAuth();
@@ -24,11 +20,33 @@ export const Dashboard = () => {
     const [showForm, setShowForm] = useState(false);
     const [editingDecision, setEditingDecision] = useState(null);
     const [filter, setFilter] = useState('all'); // all, task, meal, break
+    
+    // Cognitive load state
+    const [cognitiveLoad, setCognitiveLoad] = useState(null);
+    
+    // CSP stats state
+    const [cspStats, setCspStats] = useState(null);
 
-    // Fetch decisions on mount
+    // Fetch decisions and CSP on mount
     useEffect(() => {
         fetchDecisions();
+        fetchCspStats();
     }, [user]);
+    
+    // Fetch CSP stats
+    const fetchCspStats = async () => {
+        try {
+            const data = await profileApi.getCsp(user.id);
+            setCspStats(data.csp_vector);
+        } catch (err) {
+            console.error('Failed to fetch CSP stats:', err);
+        }
+    };
+    
+    // Handle cognitive load change from meter
+    const handleCognitiveLoadChange = (loadData) => {
+        setCognitiveLoad(loadData);
+    };
 
     const fetchDecisions = async () => {
         try {
@@ -168,45 +186,123 @@ export const Dashboard = () => {
                     )}
                 </section>
 
-                {/* Right Column - Plan & CSP (Placeholder for Person 2) */}
+                {/* Right Column - Plan & Cognitive Load */}
                 <aside style={styles.aside}>
-                    <div style={styles.placeholderCard}>
-                        <h3 style={styles.placeholderTitle}>Today's Plan</h3>
-                        <p style={styles.placeholderText}>
-                            Compressed decision cards will appear here.
-                        </p>
-                        <p style={styles.placeholderHint}>
-                            (Person 2 will implement daily plan generation)
-                        </p>
-                    </div>
+                    {/* Today's Plan - Decision Cards */}
+                    <DecisionCards 
+                        onFeedbackComplete={(action, card) => {
+                            console.log('Feedback completed:', action, card);
+                            // Refresh CSP stats when feedback is submitted
+                            fetchCspStats();
+                        }}
+                    />
 
+                    {/* Real Cognitive Load Meter */}
+                    <CognitiveLoadMeter onLoadChange={handleCognitiveLoadChange} />
+
+                    {/* CSP Stats - Learning Visualization */}
                     <div style={styles.placeholderCard}>
-                        <h3 style={styles.placeholderTitle}>Cognitive Load Meter</h3>
-                        <div style={styles.loadMeter}>
-                            <div style={styles.loadBar}>
-                                <div style={{ ...styles.loadFill, width: '50%' }} />
+                        <h3 style={styles.placeholderTitle}>Your Shadow Stats</h3>
+                        
+                        {/* Learning Progress */}
+                        <div style={styles.learningSection}>
+                            <div style={styles.learningHeader}>
+                                <span style={styles.learningIcon}>
+                                    {(cspStats?.total_decisions || 0) >= 10 ? '🧠' : '🌱'}
+                                </span>
+                                <span style={styles.learningLabel}>
+                                    {(cspStats?.total_decisions || 0) >= 20 
+                                        ? 'Shadow is well-trained' 
+                                        : (cspStats?.total_decisions || 0) >= 10 
+                                            ? 'Shadow is learning fast'
+                                            : 'Shadow is starting to learn'}
+                                </span>
                             </div>
-                            <span style={styles.loadValue}>50 / 100</span>
+                            <div style={styles.learningBar}>
+                                <div style={{
+                                    ...styles.learningFill,
+                                    width: `${Math.min(100, ((cspStats?.total_decisions || 0) / 20) * 100)}%`,
+                                }}/>
+                            </div>
+                            <span style={styles.learningCount}>
+                                {cspStats?.total_decisions || 0}/20 interactions
+                            </span>
                         </div>
-                        <p style={styles.placeholderHint}>
-                            Autonomy Level: <strong>Assist</strong>
-                        </p>
-                    </div>
 
-                    <div style={styles.placeholderCard}>
-                        <h3 style={styles.placeholderTitle}>Your CSP Stats</h3>
                         <div style={styles.statGrid}>
                             <div style={styles.stat}>
-                                <span style={styles.statValue}>-</span>
+                                <span style={{
+                                    ...styles.statValue,
+                                    color: (cspStats?.accept_rate || 0) > 0.7 ? '#10B981' : 
+                                           (cspStats?.accept_rate || 0) > 0.4 ? '#F59E0B' : '#6B7280'
+                                }}>
+                                    {cspStats?.accept_rate 
+                                        ? `${Math.round(cspStats.accept_rate * 100)}%` 
+                                        : '—'}
+                                </span>
+                                <span style={styles.statLabel}>Accept Rate</span>
+                            </div>
+                            <div style={styles.stat}>
+                                <span style={styles.statValue}>
+                                    {cspStats?.total_decisions || 0}
+                                </span>
                                 <span style={styles.statLabel}>Decisions</span>
                             </div>
                             <div style={styles.stat}>
-                                <span style={styles.statValue}>-</span>
-                                <span style={styles.statLabel}>Accept Rate</span>
+                                <span style={{...styles.statValue, color: '#10B981'}}>
+                                    {cspStats?.total_accepts || 0}
+                                </span>
+                                <span style={styles.statLabel}>Accepts</span>
+                            </div>
+                            <div style={styles.stat}>
+                                <span style={{...styles.statValue, color: '#F59E0B'}}>
+                                    {cspStats?.total_overrides || 0}
+                                </span>
+                                <span style={styles.statLabel}>Overrides</span>
                             </div>
                         </div>
-                        <p style={styles.placeholderHint}>
-                            (Person 2 will implement feedback tracking)
+
+                        {/* Time Preferences Visualization */}
+                        {cspStats?.morning_task_weight !== undefined && (
+                            <div style={styles.preferencesSection}>
+                                <p style={styles.prefTitle}>Time Preferences</p>
+                                <div style={styles.prefBar}>
+                                    <span style={styles.prefLabel}>🌅 Morning</span>
+                                    <div style={styles.prefTrack}>
+                                        <div style={{
+                                            ...styles.prefFill,
+                                            width: `${(cspStats.morning_task_weight || 0.5) * 100}%`,
+                                            backgroundColor: '#F59E0B',
+                                        }}/>
+                                    </div>
+                                </div>
+                                <div style={styles.prefBar}>
+                                    <span style={styles.prefLabel}>☀️ Afternoon</span>
+                                    <div style={styles.prefTrack}>
+                                        <div style={{
+                                            ...styles.prefFill,
+                                            width: `${(cspStats.afternoon_task_weight || 0.5) * 100}%`,
+                                            backgroundColor: '#3B82F6',
+                                        }}/>
+                                    </div>
+                                </div>
+                                <div style={styles.prefBar}>
+                                    <span style={styles.prefLabel}>🌙 Evening</span>
+                                    <div style={styles.prefTrack}>
+                                        <div style={{
+                                            ...styles.prefFill,
+                                            width: `${(cspStats.evening_task_weight || 0.3) * 100}%`,
+                                            backgroundColor: '#8B5CF6',
+                                        }}/>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        <p style={styles.cspHint}>
+                            {(cspStats?.accept_rate || 0) > 0.7 
+                                ? '✨ Your shadow is thinking like you!'
+                                : 'Your shadow learns from every choice you make.'}
                         </p>
                     </div>
                 </aside>
@@ -322,6 +418,86 @@ const styles = {
         fontSize: '12px',
         color: '#999',
         fontStyle: 'italic',
+    },
+    cspHint: {
+        margin: '12px 0 0 0',
+        fontSize: '12px',
+        color: '#6B7280',
+        textAlign: 'center',
+        fontStyle: 'italic',
+    },
+    // Learning visualization styles
+    learningSection: {
+        marginBottom: '16px',
+        padding: '12px',
+        backgroundColor: '#F9FAFB',
+        borderRadius: '8px',
+    },
+    learningHeader: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        marginBottom: '8px',
+    },
+    learningIcon: {
+        fontSize: '18px',
+    },
+    learningLabel: {
+        fontSize: '13px',
+        fontWeight: '500',
+        color: '#374151',
+    },
+    learningBar: {
+        height: '6px',
+        backgroundColor: '#E5E7EB',
+        borderRadius: '3px',
+        overflow: 'hidden',
+        marginBottom: '4px',
+    },
+    learningFill: {
+        height: '100%',
+        backgroundColor: '#4F46E5',
+        borderRadius: '3px',
+        transition: 'width 0.5s ease',
+    },
+    learningCount: {
+        fontSize: '11px',
+        color: '#9CA3AF',
+    },
+    // Time preferences visualization
+    preferencesSection: {
+        marginTop: '16px',
+        paddingTop: '12px',
+        borderTop: '1px solid #E5E7EB',
+    },
+    prefTitle: {
+        margin: '0 0 8px 0',
+        fontSize: '12px',
+        fontWeight: '500',
+        color: '#6B7280',
+    },
+    prefBar: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        marginBottom: '6px',
+    },
+    prefLabel: {
+        fontSize: '11px',
+        width: '80px',
+        color: '#6B7280',
+    },
+    prefTrack: {
+        flex: 1,
+        height: '6px',
+        backgroundColor: '#E5E7EB',
+        borderRadius: '3px',
+        overflow: 'hidden',
+    },
+    prefFill: {
+        height: '100%',
+        borderRadius: '3px',
+        transition: 'width 0.5s ease',
     },
     loadMeter: {
         marginBottom: '12px',
