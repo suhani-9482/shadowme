@@ -1,0 +1,19 @@
+{
+  "name": "shadowme-backend",
+  "version": "1.0.0",
+  "description": "ShadowMe - Your AI Cognitive Twin (Backend)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js"
+  },
+  "keywords": ["shadowme", "cognitive-twin", "decision-fatigue"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.95.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.2.4",
+    "express": "^5.2.1"
+  }
+}
